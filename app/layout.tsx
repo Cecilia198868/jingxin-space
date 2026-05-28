@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Noto_Serif_SC } from "next/font/google";
 import "./globals.css";
+import { HOME_DESCRIPTION, SITE_NAME, SITE_NAME_EN, SITE_URL } from "./seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,8 +21,24 @@ const notoSerifSC = Noto_Serif_SC({
 });
 
 export const metadata: Metadata = {
-  title: "静心修习空间",
-  description: "佛经修习、佛号咒语与描绘修习空间。",
+  metadataBase: new URL(SITE_URL),
+  applicationName: SITE_NAME,
+  title: {
+    default: `${SITE_NAME} | ${SITE_NAME_EN}`,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: HOME_DESCRIPTION,
+  keywords: [
+    "静心修习空间",
+    "Jingxin Meditation Space",
+    "抄写佛经",
+    "静心描佛",
+    "念佛号",
+    "佛乐欣赏",
+    "传统文化学习",
+  ],
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
 };
 
 export default function RootLayout({
@@ -31,7 +48,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} ${notoSerifSC.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
