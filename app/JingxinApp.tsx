@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
@@ -16,6 +17,9 @@ import {
   type ScriptureSentence,
 } from "./data/scriptures";
 import { mantraGroups, mantras, type Mantra } from "./data/mantras";
+import { knowledgeArticles } from "./data/knowledge";
+import { beginnerGuideArticles } from "./data/beginner-guide";
+import { contactEmail, footerInfoArticles } from "./data/footer-info";
 
 const CURRENT_BOOK_KEY = "scripture-copy-current-book";
 const LAST_POSITION_KEY = "scripture-copy-last-position";
@@ -302,6 +306,11 @@ type AdSlot = {
   title: string;
   description: string;
   buttonText: string;
+  href: string;
+};
+
+type SidebarButton = {
+  label: string;
   href: string;
 };
 
@@ -1600,16 +1609,31 @@ const adSlots: Record<"left" | "right", AdSlot[]> = {
   ],
 };
 
+const sidebarButtons: Record<"left" | "right", SidebarButton[]> = {
+  left: [
+    { label: "古琴雅集", href: "#" },
+    { label: "茶道雅集", href: "#" },
+    { label: "静修用品", href: "#" },
+  ],
+  right: [
+    { label: "好书推荐", href: "#" },
+    { label: "抄经用品", href: "#" },
+    { label: "阅读护眼", href: "#" },
+  ],
+};
+
 function AdColumn({
   slots,
   isDark,
   side,
   slotCount,
+  onColumnButtonClick,
 }: {
   slots: AdSlot[];
   isDark: boolean;
   side: "left" | "right";
   slotCount: number;
+  onColumnButtonClick?: () => void;
 }) {
   const visibleSlots = Array.from(
     { length: Math.max(slots.length, slotCount) },
@@ -1632,6 +1656,25 @@ function AdColumn({
           : "home-ad-column--right justify-self-end"
       }`}
     >
+      <nav className="home-sidebar-button-stack" aria-label={`${side} sidebar links`}>
+        {sidebarButtons[side].map((button) => (
+          <a
+            key={button.label}
+            href={button.href}
+            onClick={(event) => {
+              if (button.href === "#") {
+                event.preventDefault();
+              }
+
+              onColumnButtonClick?.();
+            }}
+            className="serene-nav-font home-sidebar-button"
+          >
+            {button.label}
+          </a>
+        ))}
+      </nav>
+
       {visibleSlots.map(({ slot, key }) => (
         <section
           key={key}
@@ -1654,6 +1697,7 @@ function AdColumn({
           {slot.href === "#" ? (
             <button
               type="button"
+              onClick={onColumnButtonClick}
               className={`serene-nav-font mt-4 inline-flex h-10 w-full items-center justify-center rounded-full border px-4 text-[16px] font-semibold transition hover:-translate-y-0.5 ${buttonClasses}`}
             >
               {slot.buttonText}
@@ -2286,7 +2330,9 @@ function readMantraLastPosition(): MantraLastPosition | null {
 }
 
 export default function Home() {
+  const pathname = usePathname();
   const [practiceMode, setPracticeMode] = useState<PracticeMode>("scripture");
+  const [homePracticeStarted, setHomePracticeStarted] = useState(false);
   const [currentBookKey, setCurrentBookKey] =
     useState<ScriptureKey>("heartSutra");
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -2301,6 +2347,22 @@ export default function Home() {
   const [mantraSelectorOpen, setMantraSelectorOpen] = useState(false);
   const [drawingSelectorOpen, setDrawingSelectorOpen] = useState(false);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenu | null>(null);
+  const [knowledgePanelVisible, setKnowledgePanelVisible] = useState(
+    pathname === "/",
+  );
+  const [knowledgeMenuOpen, setKnowledgeMenuOpen] = useState(false);
+  const [activeKnowledgeSlug, setActiveKnowledgeSlug] = useState(
+    knowledgeArticles[0].slug,
+  );
+  const [beginnerGuidePanelVisible, setBeginnerGuidePanelVisible] =
+    useState(false);
+  const [beginnerGuideMenuOpen, setBeginnerGuideMenuOpen] = useState(false);
+  const [activeBeginnerGuideSlug, setActiveBeginnerGuideSlug] = useState(
+    beginnerGuideArticles[0].slug,
+  );
+  const [activeFooterInfoSlug, setActiveFooterInfoSlug] = useState<
+    string | null
+  >(null);
   const [selectedChant, setSelectedChant] =
     useState<BuddhaChant>("南无阿弥陀佛");
   const [selectedMantra, setSelectedMantra] = useState<Mantra>(mantras[0]);
@@ -2391,18 +2453,28 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const lastPosition = readLastPosition();
+      const params = new URLSearchParams(window.location.search);
+      const requestedBookParam = params.get("book");
+      const requestedBookKey = isScriptureKey(requestedBookParam)
+        ? requestedBookParam
+        : null;
+      const requestedSentenceNumber = Number(params.get("sentence"));
+      const lastPosition = requestedBookKey ? null : readLastPosition();
       const savedBookKey = window.localStorage.getItem(CURRENT_BOOK_KEY);
       const nextBookKey =
+        requestedBookKey ??
         lastPosition?.bookKey ??
         (isScriptureKey(savedBookKey) &&
         scriptures[savedBookKey].sentences.length > 0
           ? savedBookKey
           : "heartSutra");
       const sentenceCount = scriptures[nextBookKey].sentences.length;
-      const nextIndex = lastPosition
-        ? clampIndex(lastPosition.globalSentenceIndex, sentenceCount - 1)
-        : Number(window.localStorage.getItem(getIndexKey(nextBookKey)));
+      const nextIndex =
+        requestedBookKey && Number.isInteger(requestedSentenceNumber)
+          ? clampIndex(requestedSentenceNumber - 1, sentenceCount - 1)
+          : lastPosition
+            ? clampIndex(lastPosition.globalSentenceIndex, sentenceCount - 1)
+            : Number(window.localStorage.getItem(getIndexKey(nextBookKey)));
       const nextAnswers = loadSavedAnswers(nextBookKey);
 
       setCurrentBookKey(nextBookKey);
@@ -2556,9 +2628,70 @@ export default function Home() {
     return () => stopExplanationAudio();
   }, [practiceMode, currentBookKey, currentIndex, stopExplanationAudio]);
 
+  useEffect(() => {
+    const selectKnowledgeFromHash = () => {
+      const slug = decodeURIComponent(window.location.hash.replace("#", ""));
+
+      if (knowledgeArticles.some((article) => article.slug === slug)) {
+        setActiveKnowledgeSlug(slug);
+        setKnowledgePanelVisible(true);
+        setKnowledgeMenuOpen(false);
+        setBeginnerGuidePanelVisible(false);
+        setBeginnerGuideMenuOpen(false);
+        return;
+      }
+
+      if (beginnerGuideArticles.some((article) => article.slug === slug)) {
+        setActiveBeginnerGuideSlug(slug);
+        setBeginnerGuidePanelVisible(true);
+        setBeginnerGuideMenuOpen(false);
+        setKnowledgePanelVisible(false);
+        setKnowledgeMenuOpen(false);
+        setActiveFooterInfoSlug(null);
+        return;
+      }
+
+      if (footerInfoArticles.some((article) => article.slug === slug)) {
+        setActiveFooterInfoSlug(slug);
+        setKnowledgePanelVisible(false);
+        setKnowledgeMenuOpen(false);
+        setBeginnerGuidePanelVisible(false);
+        setBeginnerGuideMenuOpen(false);
+      }
+    };
+
+    selectKnowledgeFromHash();
+    window.addEventListener("hashchange", selectKnowledgeFromHash);
+
+    return () => {
+      window.removeEventListener("hashchange", selectKnowledgeFromHash);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (pathname !== "/") {
+      setKnowledgePanelVisible(false);
+      setKnowledgeMenuOpen(false);
+      setBeginnerGuidePanelVisible(false);
+      setBeginnerGuideMenuOpen(false);
+      setActiveFooterInfoSlug(null);
+    }
+  }, [pathname]);
+
   const currentBook = scriptures[currentBookKey];
   const currentSentences = currentBook.sentences;
   const currentScripture = currentSentences[currentIndex];
+  const activeKnowledgeArticle =
+    knowledgeArticles.find((article) => article.slug === activeKnowledgeSlug) ??
+    knowledgeArticles[0];
+  const activeBeginnerGuideArticle =
+    beginnerGuideArticles.find(
+      (article) => article.slug === activeBeginnerGuideSlug,
+    ) ?? beginnerGuideArticles[0];
+  const activeFooterInfoArticle = activeFooterInfoSlug
+    ? (footerInfoArticles.find((article) => article.slug === activeFooterInfoSlug) ??
+      null)
+    : null;
   const isChantMode = practiceMode === "chant";
   const isMantraMode = practiceMode === "mantra";
   const isDrawingMode = practiceMode === "buddhaDrawing";
@@ -2570,6 +2703,7 @@ export default function Home() {
   const isBackgroundMusicMode = practiceMode === "backgroundMusic";
   const isScriptureMode = practiceMode === "scripture";
   const isCopyPhraseMode = isChantMode || isMantraMode;
+  const shouldShowPracticeContent = pathname !== "/" || homePracticeStarted;
   const scriptureCopyTextStyle = {
     "--scripture-copy-font-size": `${Math.max(fontSize, 42)}px`,
   } as CSSProperties;
@@ -3785,6 +3919,8 @@ export default function Home() {
 
   const selectDrawing = (drawing: BuddhaDrawing) => {
     stopExplanationAudio();
+    hideKnowledgePanel();
+    setHomePracticeStarted(true);
     setPracticeMode("buddhaDrawing");
     setSelectedDrawing(drawing);
     setDrawingColor(drawingColors[0].value);
@@ -3930,6 +4066,8 @@ export default function Home() {
     window.localStorage.setItem(getIndexKey(bookKey), "0");
 
     stopExplanationAudio();
+    hideKnowledgePanel();
+    setHomePracticeStarted(true);
     setPracticeMode("scripture");
     setCurrentBookKey(bookKey);
     setCurrentIndex(0);
@@ -3944,6 +4082,8 @@ export default function Home() {
 
   const selectChant = (chant: BuddhaChant) => {
     stopExplanationAudio();
+    hideKnowledgePanel();
+    setHomePracticeStarted(true);
     setPracticeMode("chant");
     setSelectedChant(chant);
     setChantAnswer("");
@@ -3961,6 +4101,8 @@ export default function Home() {
   const selectMantra = (mantra: Mantra) => {
     const lines = splitMantraLines(mantra.text);
     stopExplanationAudio();
+    hideKnowledgePanel();
+    setHomePracticeStarted(true);
     setPracticeMode("mantra");
     setSelectedMantra(mantra);
     setMantraAnswer("");
@@ -4017,7 +4159,75 @@ export default function Home() {
     setDrawingSelectorOpen(false);
   };
 
+  const hideKnowledgePanel = () => {
+    setKnowledgePanelVisible(false);
+    setKnowledgeMenuOpen(false);
+    setBeginnerGuidePanelVisible(false);
+    setBeginnerGuideMenuOpen(false);
+    setActiveFooterInfoSlug(null);
+  };
+
+  const toggleKnowledgeMenu = () => {
+    if (!knowledgePanelVisible) {
+      setActiveKnowledgeSlug(knowledgeArticles[0].slug);
+    }
+
+    setKnowledgePanelVisible(true);
+    setKnowledgeMenuOpen((current) => !current);
+    setBeginnerGuidePanelVisible(false);
+    setBeginnerGuideMenuOpen(false);
+    setActiveFooterInfoSlug(null);
+    setActiveTopMenu(null);
+    closePracticeSelectors();
+  };
+
+  const toggleBeginnerGuideMenu = () => {
+    if (!beginnerGuidePanelVisible) {
+      setActiveBeginnerGuideSlug(beginnerGuideArticles[0].slug);
+    }
+
+    setBeginnerGuidePanelVisible(true);
+    setBeginnerGuideMenuOpen((current) => !current);
+    setKnowledgePanelVisible(false);
+    setKnowledgeMenuOpen(false);
+    setActiveFooterInfoSlug(null);
+    setActiveTopMenu(null);
+    closePracticeSelectors();
+  };
+
+  const selectKnowledgeArticle = (slug: string) => {
+    setActiveKnowledgeSlug(slug);
+    setKnowledgePanelVisible(true);
+    setKnowledgeMenuOpen(false);
+    setBeginnerGuidePanelVisible(false);
+    setBeginnerGuideMenuOpen(false);
+    setActiveFooterInfoSlug(null);
+    window.history.replaceState(null, "", `#${slug}`);
+  };
+
+  const selectBeginnerGuideArticle = (slug: string) => {
+    setActiveBeginnerGuideSlug(slug);
+    setBeginnerGuidePanelVisible(true);
+    setBeginnerGuideMenuOpen(false);
+    setKnowledgePanelVisible(false);
+    setKnowledgeMenuOpen(false);
+    setActiveFooterInfoSlug(null);
+    window.history.replaceState(null, "", `#${slug}`);
+  };
+
+  const selectFooterInfoArticle = (slug: string) => {
+    setActiveFooterInfoSlug(slug);
+    setKnowledgePanelVisible(false);
+    setKnowledgeMenuOpen(false);
+    setBeginnerGuidePanelVisible(false);
+    setBeginnerGuideMenuOpen(false);
+    setActiveTopMenu(null);
+    closePracticeSelectors();
+    window.history.replaceState(null, "", `#${slug}`);
+  };
+
   const openProjectPanel = (menu: TopMenu) => {
+    hideKnowledgePanel();
     setActiveTopMenu((current) => (current === menu ? null : menu));
     closePracticeSelectors();
   };
@@ -4026,6 +4236,7 @@ export default function Home() {
     selector: "scripture" | "chant" | "mantra" | "drawing",
   ) => {
     stopExplanationAudio();
+    hideKnowledgePanel();
     setPracticeMode(
       selector === "drawing"
         ? "buddhaDrawing"
@@ -4043,6 +4254,8 @@ export default function Home() {
 
   const openSutraReading = (reading: SutraReading) => {
     stopExplanationAudio();
+    hideKnowledgePanel();
+    setHomePracticeStarted(true);
     setPracticeMode("sutraReading");
     setSelectedSutraReading(reading);
     setActiveTopMenu(null);
@@ -4052,6 +4265,8 @@ export default function Home() {
 
   const openBuddhaNameRecitation = (recitation: BuddhaNameRecitation) => {
     stopExplanationAudio();
+    hideKnowledgePanel();
+    setHomePracticeStarted(true);
     setPracticeMode("buddhaNameRecitation");
     setSelectedBuddhaNameRecitation(recitation);
     setActiveTopMenu(null);
@@ -4061,6 +4276,8 @@ export default function Home() {
 
   const openMantraRecitation = (recitation: MantraRecitation) => {
     stopExplanationAudio();
+    hideKnowledgePanel();
+    setHomePracticeStarted(true);
     setPracticeMode("mantraRecitation");
     setSelectedMantraRecitation(recitation);
     setActiveTopMenu(null);
@@ -4070,6 +4287,8 @@ export default function Home() {
 
   const openBuddhistMusic = (music: BuddhistMusic) => {
     stopExplanationAudio();
+    hideKnowledgePanel();
+    setHomePracticeStarted(true);
     setPracticeMode("buddhistMusic");
     setSelectedBuddhistMusic(music);
     setActiveTopMenu(null);
@@ -4079,12 +4298,61 @@ export default function Home() {
 
   const openBackgroundMusic = (music: BackgroundMusic) => {
     stopExplanationAudio();
+    hideKnowledgePanel();
+    setHomePracticeStarted(true);
     setPracticeMode("backgroundMusic");
     setSelectedBackgroundMusic(music);
     setActiveTopMenu(null);
     closePracticeSelectors();
     setNotice("");
   };
+
+  const initializedSearchResultRouteRef = useRef(false);
+
+  useEffect(() => {
+    if (initializedSearchResultRouteRef.current) {
+      return;
+    }
+
+    initializedSearchResultRouteRef.current = true;
+
+    const params = new URLSearchParams(window.location.search);
+    const requestedReadingId = params.get("reading");
+    const requestedMusicId = params.get("music");
+
+    if (requestedReadingId) {
+      const requestedReading = sutraReadings.find(
+        (reading) => reading.id === requestedReadingId,
+      );
+
+      if (requestedReading) {
+        stopExplanationAudio();
+        setHomePracticeStarted(true);
+        setPracticeMode("sutraReading");
+        setSelectedSutraReading(requestedReading);
+        setActiveTopMenu(null);
+        closePracticeSelectors();
+        setNotice("");
+        return;
+      }
+    }
+
+    if (window.location.pathname.startsWith("/buddhist-music")) {
+      const requestedMusic = requestedMusicId
+        ? buddhistMusicVideos.find((music) => music.id === requestedMusicId)
+        : buddhistMusicVideos[0];
+
+      if (requestedMusic) {
+        stopExplanationAudio();
+        setHomePracticeStarted(true);
+        setPracticeMode("buddhistMusic");
+        setSelectedBuddhistMusic(requestedMusic);
+        setActiveTopMenu(null);
+        closePracticeSelectors();
+        setNotice("");
+      }
+    }
+  }, [closePracticeSelectors, stopExplanationAudio]);
 
   return (
     <main
@@ -4098,6 +4366,7 @@ export default function Home() {
           isDark={isDark}
           side="left"
           slotCount={renderedAdSlotCount}
+          onColumnButtonClick={hideKnowledgePanel}
         />
 
         <div
@@ -4113,9 +4382,47 @@ export default function Home() {
               draggable={false}
             />
           </header>
+          <section className="no-print home-search-band" aria-label="佛教知识搜索">
+            <button
+              type="button"
+              className="home-search-side-button"
+              onClick={toggleKnowledgeMenu}
+              aria-controls="buddhist-knowledge-menu"
+              aria-expanded={knowledgeMenuOpen}
+            >
+              佛教知识
+            </button>
+            <form
+              action="/search"
+              className="home-search-form"
+            >
+              <span className="home-search-decor" aria-hidden="true" />
+              <span className="home-search-icon" aria-hidden="true" />
+              <input
+                type="search"
+                name="q"
+                className="home-search-input"
+                placeholder="搜索佛经、佛号、佛乐、菩萨、咒语、修行方法..."
+                aria-label="搜索佛教知识"
+              />
+              <button type="submit" className="home-search-submit">
+                搜索
+              </button>
+            </form>
+            <button
+              type="button"
+              className="home-search-side-button"
+              onClick={toggleBeginnerGuideMenu}
+              aria-controls="beginner-guide-menu"
+              aria-expanded={beginnerGuideMenuOpen}
+            >
+              初学者学佛指南
+            </button>
+          </section>
           <section className="no-print home-landing-section">
             <div className="home-landing-grid">
-              <a
+              <div className="home-buddha-column">
+                <a
                 href="/draw-buddha"
                 className="draw-entry-card"
               >
@@ -4126,8 +4433,8 @@ export default function Home() {
                   className="draw-entry-image"
                   draggable={false}
                 />
-              </a>
-
+                </a>
+              </div>
               <div className="home-project-grid">
                 <button
                   type="button"
@@ -4314,6 +4621,142 @@ export default function Home() {
                   </span>
                 </button>
               </div>
+
+              {knowledgePanelVisible ? (
+                <section
+                  id="buddhist-knowledge-menu"
+                  className={`home-knowledge-panel ${
+                    isDark
+                      ? "home-knowledge-panel--dark border-stone-700 bg-[#211f1c] text-stone-100"
+                      : "border-[#d9c7a3] bg-[#fffdf6] text-[#1f140c]"
+                  }`}
+                >
+                  {knowledgeMenuOpen ? (
+                    <nav
+                      className="beginner-guide-menu"
+                      aria-label="佛教知识下级菜单"
+                    >
+                      {[0, Math.ceil(knowledgeArticles.length / 2)].map(
+                        (startIndex) => (
+                          <ol
+                            key={startIndex}
+                            className="beginner-guide-menu-column"
+                            start={startIndex + 1}
+                          >
+                            {knowledgeArticles
+                              .slice(
+                                startIndex,
+                                startIndex +
+                                  Math.ceil(knowledgeArticles.length / 2),
+                              )
+                              .map((article) => (
+                                <li key={article.slug}>
+                                  <a
+                                    href={`#${article.slug}`}
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      selectKnowledgeArticle(article.slug);
+                                    }}
+                                    className={`beginner-guide-menu-link ${
+                                      activeKnowledgeArticle.slug ===
+                                      article.slug
+                                        ? "beginner-guide-menu-link--active"
+                                        : ""
+                                    }`}
+                                    aria-current={
+                                      activeKnowledgeArticle.slug ===
+                                      article.slug
+                                        ? "page"
+                                        : undefined
+                                    }
+                                  >
+                                    {article.menuLabel}
+                                  </a>
+                                </li>
+                              ))}
+                          </ol>
+                        ),
+                      )}
+                    </nav>
+                  ) : null}
+
+                  <article
+                    key={activeKnowledgeArticle.slug}
+                    id={activeKnowledgeArticle.slug}
+                    className="home-knowledge-article"
+                  >
+                    <h2>{activeKnowledgeArticle.title}</h2>
+                    {activeKnowledgeArticle.paragraphs.map((paragraph) => (
+                      <p key={paragraph}>{paragraph}</p>
+                    ))}
+                  </article>
+                </section>
+              ) : null}
+
+              {beginnerGuidePanelVisible ? (
+                <section
+                  id="beginner-guide-menu"
+                  className={`home-knowledge-panel ${
+                    isDark
+                      ? "home-knowledge-panel--dark border-stone-700 bg-[#211f1c] text-stone-100"
+                      : "border-[#d9c7a3] bg-[#fffdf6] text-[#1f140c]"
+                  }`}
+                >
+                  {beginnerGuideMenuOpen ? (
+                    <nav
+                      className="beginner-guide-menu"
+                      aria-label="初学者学佛指南下级菜单"
+                    >
+                      {[0, 10].map((startIndex) => (
+                        <ol
+                          key={startIndex}
+                          className="beginner-guide-menu-column"
+                          start={startIndex + 1}
+                        >
+                          {beginnerGuideArticles
+                            .slice(startIndex, startIndex + 10)
+                            .map((article) => (
+                              <li key={article.slug}>
+                                <a
+                                  href={`#${article.slug}`}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    selectBeginnerGuideArticle(article.slug);
+                                  }}
+                                  className={`beginner-guide-menu-link ${
+                                    activeBeginnerGuideArticle.slug ===
+                                    article.slug
+                                      ? "beginner-guide-menu-link--active"
+                                      : ""
+                                  }`}
+                                  aria-current={
+                                    activeBeginnerGuideArticle.slug ===
+                                    article.slug
+                                      ? "page"
+                                      : undefined
+                                  }
+                                >
+                                  {article.menuLabel}
+                                </a>
+                              </li>
+                            ))}
+                        </ol>
+                      ))}
+                    </nav>
+                  ) : null}
+
+                  <article
+                    key={activeBeginnerGuideArticle.slug}
+                    id={activeBeginnerGuideArticle.slug}
+                    className="home-knowledge-article"
+                  >
+                    <h2>{activeBeginnerGuideArticle.title}</h2>
+                    {activeBeginnerGuideArticle.paragraphs.map((paragraph) => (
+                      <p key={paragraph}>{paragraph}</p>
+                    ))}
+                  </article>
+                </section>
+              ) : null}
             </div>
 
             {activeTopMenu === "study" && !(isDrawingMode && drawingSelectorOpen) ? (
@@ -4702,6 +5145,7 @@ export default function Home() {
             ) : null}
           </section>
 
+        {shouldShowPracticeContent ? (
         <section className="flex flex-col gap-4 pb-8">
           {isBuddhaNameRecitationMode ? (
             <div className="flex w-full min-w-0 flex-col items-stretch gap-4 pt-1">
@@ -5835,6 +6279,7 @@ export default function Home() {
             </article>
           ) : null}
         </section>
+        ) : null}
 
           <footer
             className={`no-print mt-8 border-t px-4 pb-7 pt-5 text-center transition-colors ${
@@ -5843,6 +6288,46 @@ export default function Home() {
                 : "border-[rgba(185,158,110,0.42)] text-[#5a4231]"
             }`}
           >
+            <nav className="site-footer-link-row" aria-label="网站底部信息">
+              {footerInfoArticles.map((article) => (
+                <button
+                  key={article.slug}
+                  type="button"
+                  onClick={() => selectFooterInfoArticle(article.slug)}
+                  className={`site-footer-link-button ${
+                    activeFooterInfoSlug === article.slug
+                      ? "site-footer-link-button--active"
+                      : ""
+                  }`}
+                  aria-expanded={activeFooterInfoSlug === article.slug}
+                >
+                  {article.menuLabel}
+                </button>
+              ))}
+            </nav>
+
+            {activeFooterInfoArticle ? (
+              <article
+                id={activeFooterInfoArticle.slug}
+                className={`site-footer-info-panel ${
+                  isDark ? "site-footer-info-panel--dark" : ""
+                }`}
+              >
+                <h2>{activeFooterInfoArticle.title}</h2>
+                {activeFooterInfoArticle.paragraphs.map((paragraph) => (
+                  <p key={paragraph}>{paragraph}</p>
+                ))}
+                {activeFooterInfoArticle.slug === "footer-contact" ? (
+                  <a
+                    href={`mailto:${contactEmail}`}
+                    className="site-footer-email-link"
+                  >
+                    发送邮件：{contactEmail}
+                  </a>
+                ) : null}
+              </article>
+            ) : null}
+
             <p className="text-[13px] leading-relaxed">
               As an Amazon Associate I earn from qualifying purchases.
             </p>
@@ -5857,6 +6342,7 @@ export default function Home() {
           isDark={isDark}
           side="right"
           slotCount={renderedAdSlotCount}
+          onColumnButtonClick={hideKnowledgePanel}
         />
       </div>
     </main>
